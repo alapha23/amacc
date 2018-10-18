@@ -6,6 +6,7 @@ TEST_OBJ = $(TEST_SRC:.c=.o)
 
 BIN = amacc
 EXEC = $(BIN) $(BIN)-native
+CC = gcc
 
 include mk/arm.mk
 include mk/common.mk

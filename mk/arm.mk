@@ -11,7 +11,7 @@ ifeq ("$(ARM_CC2)","")
 $(error "no valid GNU toolchain for ARM found.")
 endif
 
-ARM_QEMU = qemu-arm
+ARM_QEMU = qemu-system-arm
 ARM_QEMU := $(shell which $(ARM_QEMU))
 ifndef ARM_QEMU
 $(error "no qemu-arm found. Please check package installation")

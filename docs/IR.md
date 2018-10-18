@@ -3,13 +3,13 @@ AMaCC Quick start
 # How IR work inside AMaCC
 
 ## What is an IR? 
-An IR is a representation of a "program" between source code and target languages.Before
-creating binary,the compiler frontend will generate IR to help compiler backend to
+An IR is a representation of a "program" between source code and target languages. Before
+creating binary, the compiler frontend will generate IR to help compiler backend to
 generate binary file that is independent of the source.
 
 ## Why use an IR?
 * Because translation appears to inherently require analysis and synthesis.
-* Break the difficult problem of translation into two simpler,more manageable pieces.
+* Break the difficult problem of translation into two simpler, more manageable pieces.
 * To build retargetable compilers:
     * Build new back ends for an existing front end(make source language more portable and
       across machine).
@@ -32,7 +32,7 @@ PSH
 IMM  11
 ADD 
 ```
-These IR will be stored inside the stack.According to the stack execution mode LIFO (Last in First Out), these instructions will be executed sequentially from top to bottom by push and pop.
+These IR will be stored inside the stack. According to the stack execution mode LIFO (Last in First Out), these instructions will be executed sequentially from top to bottom by push and pop.
 ```
 | IMM  10 | pop `IMM 10`
 | PSH     |-------------> | PSH   | pop `PSH`
@@ -82,7 +82,7 @@ reg
 |SC         | SC                |pop {r1}; strb r0, [r1]        |stores the character in general register into the memory whose address is stored on the top of the stack| 
 |PSH        | PSH               |push {r0}                      |pushes the value in general register onto the stack               |
 
-## Take a look how function call inside AMaCC
+## Take a look into function call inside AMaCC
 
 ```c
 int func(int a)
@@ -97,7 +97,7 @@ int main()
 }
 ```
 
-compiled with AMaCC,passing argument `-s`
+compiled with AMaCC, passing argument `-s`
 ```c
 1: int func(int a)
 2: {
@@ -129,9 +129,9 @@ compiled with AMaCC,passing argument `-s`
 
 # Arithmetic instructions
 
-Each operator has two arguments, the first one is store on the top of the stack,the second is stored in general register.After the calculation is done, the argument on the stack will be poped out and the result will be stored in general register. So you are not able to fetch the first argument from the stack after the calculation.
+Each operator has two arguments, the first one is store on the top of the stack, the second is stored in general register. After the calculation is done, the argument on the stack will be poped out and the result will be stored in general register. So you are not able to fetch the first argument from the stack after the calculation.
 
-You can see the above example to know how arithmetic instructions work.
+You can see the example above to know how arithmetic instructions work.
 
 # compare instructions
 
@@ -148,7 +148,7 @@ example
     GT              ; compare r0 and r1(pop r1 first on top of stack)
     BZ   0          ; jump when r1>r0
 ```
-The arithmetic instructions for compare will be translated to ARM instruction,for exampe:
+The arithmetic instructions for comparasion will be translated to ARM instruction, for example:
 ```
 # GT
 pop  {r1}

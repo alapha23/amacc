@@ -35,6 +35,9 @@ int elf;             // print ELF format
 int elf_fd;
 int rwdata_align_off;
 
+int *n;              // current node in abstract syntax tree 
+int *ast;            // ast as in c5.c main function
+
 // identifier
 struct ident_s {
     int tk;          // type-id or keyword
@@ -60,7 +63,7 @@ struct member_s {
 
 // tokens and classes (operators last and in precedence order)
 enum {
-    Num = 128, Func, Syscall, Glo, Loc, Id,
+    Num = 128, Func, Syscall, Glo, Loc, Id, Load, Enter,
     Break, Case, Char, Default, Else, Enum, If, Int, Return, Sizeof,
     Struct, Switch, For, While,
     Assign, AddAssign, SubAssign, MulAssign, // operator =, +=, -=, *=
@@ -205,6 +208,8 @@ enum {
      * the calculation.
      */
 
+    QSRT,
+
     /* system call shortcuts */
     OPEN,READ,WRIT,CLOS,PRTF,MALC,FREE,MSET,MCMP,MCPY,MMAP,DSYM,BSCH,STRT,EXIT,
     CLCA /* clear cache, used by JIT compilation */
@@ -300,6 +305,7 @@ void next()
                              "LI   LC   SI   SC   PSH  "
                              "OR   XOR  AND  EQ   NE   LT   GT   LE   GE   "
                              "SHL  SHR  ADD  SUB  MUL  "
+			     "QSRT "
                              "OPEN READ WRIT CLOS PRTF MALC FREE "
                              "MSET MCMP MCPY MMAP "
                              "DSYM BSCH STRT EXIT CLCA" [*++le * 5]);
@@ -398,9 +404,9 @@ void expr(int lev)
     case 0: fatal("unexpected eof in expression");
     // directly take an immediate value as the expression value
     // IMM recorded in emit sequence
-    case Num: *++e = IMM; *++e = ival; next(); ty = INT; break;
+    case Num: *--n = ival; *--n = Num; next(); ty = INT; break;
     case '"': // string, as a literal in data segment
-        *++e = IMM; *++e = ival; next();
+        *--n = ival; *--n = Num; next();
         // continuous `"` handles C-style multiline text such as `"abc" "def"`
         while (tk == '"') next();
         /* append the end of string character '\0', all the data is defaulted
@@ -432,7 +438,7 @@ void expr(int lev)
         while (tk == Mul) { next(); ty += PTR; }
         if (tk == ')') next();
         else fatal("close paren expected in sizeof");
-        *++e = IMM; *++e = ty >= PTR ? sizeof(int) : tsize[ty];
+        *--n = (ty == CHAR) ? sizeof(char) : sizeof(int); *--n = Num; 
         ty = INT;
         break;
     case Id:
@@ -440,13 +446,16 @@ void expr(int lev)
         // function call
         if (tk == '(') {
             next();
-            t = 0;
+            t = 0; b = 0;
             // the parameters
             while (tk != ')') {
-                expr(Assign); *++e = PSH; ++t;
+                expr(Assign); *--n = (int)b; b =n; ++t;
                 if (tk == ',') next();
             }
             next();
+            *--n = t; *--n = d->val; *--n = (int)b; *--n = d->class;
+	    ty = d->type;
+
             switch (d->class) { // d stores function name
             case Syscall: *++e = d->val; break; // system calls, such as "malloc"
             case Func: *++e = JSR; *++e = d->val; break;
@@ -1669,6 +1678,66 @@ int streq(char *p1, char *p2)
 }
 
 enum { _O_CREAT = 64, _O_WRONLY = 1 };
+
+void gen(int *n)
+{
+  int i, *a, *b;
+
+  i = *n;
+  if (i == Num) { *++e = IMM; *++e = n[1]; }
+  else if (i == Loc) { *++e = LEA; *++e = n[1]; }
+  else if (i == Load) { gen(n+2); *++e = (n[1] == CHAR) ? LC : LI; }
+  else if (i == Assign) { gen((int *)n[2]); *++e = PSH; gen(n+3); *++e = (n[1] == CHAR) ? SC : SI; }
+  else if (i == Inc || i == Dec) {
+    gen(n+2);
+    *++e = PSH; *++e = (n[1] == CHAR) ? LC : LI; *++e = PSH;
+    *++e = IMM; *++e = (n[1] > PTR) ? sizeof(int) : sizeof(char);
+    *++e = (i == Inc) ? ADD : SUB;
+    *++e = (n[1] == CHAR) ? SC : SI;
+  }
+  else if (i == Cond) {
+    gen((int *)n[1]);
+    *++e = BZ; b = ++e;
+    gen((int *)n[2]);
+    if (n[3]) { *b = (int)(e + 3); *++e = JMP; b = ++e; gen((int *)n[3]); }
+    *b = (int)(e + 1);
+  }
+
+else if (i == Lor) { gen((int *)n[1]); *++e = BNZ; b = ++e; gen(n+2); *b = (int)(e + 1); }
+  else if (i == Lan) { gen((int *)n[1]); *++e = BZ;  b = ++e; gen(n+2); *b = (int)(e + 1); }
+  else if (i == Or)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = OR; }
+  else if (i == Xor) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = XOR; }
+  else if (i == And) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = AND; }
+  else if (i == Eq)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = EQ; }
+  else if (i == Ne)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = NE; }
+  else if (i == Lt)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = LT; }
+  else if (i == Gt)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = GT; }
+  else if (i == Le)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = LE; }
+  else if (i == Ge)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = GE; }
+  else if (i == Shl) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = SHL; }
+  else if (i == Shr) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = SHR; }
+  else if (i == Add) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = ADD; }
+  else if (i == Sub) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = SUB; }
+  else if (i == Mul) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = MUL; }
+//  else if (i == Div) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = DIV; }
+//  else if (i == Mod) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = MOD; }
+  else if (i == Syscall || i == Func) {
+    b = (int *)n[1];
+    while (b) { gen(b+1); *++e = PSH; b = (int *)*b; }
+    if (i == Func) *++e = JSR; *++e = n[2];
+    if (n[3]) { *++e = ADJ; *++e = n[3]; }
+  }
+  else if (i == While) {
+    *++e = JMP; b = ++e; gen(n+2); *b = (int)(e + 1);
+    gen((int *)n[1]);
+    *++e = BNZ; *++e = (int)(b + 1);
+  }
+  else if (i == Return) { if (n[1]) gen((int *)n[1]); *++e = LEV; }
+  else if (i == '{') { gen((int *)n[1]); gen(n+2); }
+  else if (i == Enter) { *++e = ENT; *++e = n[1]; gen(n+2); *++e = LEV; }
+  else if (i != ';') { printf("%d: compiler error gen=%d\n", line, i); exit(-1); }
+}
+
 int main(int argc, char **argv)
 {
     int fd, ret, bt, mbt, ty, poolsz;
@@ -1717,6 +1786,10 @@ int main(int argc, char **argv)
     if (!(members = malloc(PTR * sizeof(struct member_s *)))) {
         printf("could not malloc() members area\n"); return -1;
     }
+    if (!(ast = malloc(poolsz))) {
+	printf("could not malloc() abstract syntax tree area\n"); return -1;
+    }
+    ast = (int *)((int)ast + poolsz);  // abstract syntax tree is most efficiently built as a stack
 
     memset(sym, 0, poolsz);
     memset(e, 0, poolsz);
@@ -1796,9 +1869,14 @@ int main(int argc, char **argv)
                     next();
                     if (tk == Assign) {
                         next();
-                        if (tk != Num) fatal("bad enum initializer");
+			n = ast; expr(Cond);
+			if (*n != Num) { printf("%d: bad enum initializer\n", line); return -1;}
+			i = n[1];
+			/*
+			next();
+			if (tk != Num) fatal("bad enum initializer");
                         i = ival;
-                        next();
+                        next();*/
                     }
                     id->class = Num; id->type = INT; id->val = i++;
                     if (tk == ',') next();
@@ -1917,6 +1995,10 @@ int main(int argc, char **argv)
                     }
                     next();
                 }
+		n = ast;
+		*--n = ';' while (tk != '}') { t = n; stmt(); *--n = (int)t; *--n = '{'; }
+		*--n = -i; *--n = Enter;
+		gen(n);
                 // Not declare and must not be function, analyze inner block.
                 // e represents the address which will store pc
                 // (i - loc) indicates memory size to alocate
@@ -1956,3 +2038,4 @@ int main(int argc, char **argv)
 }
 
 // vim: set tabstop=4 shiftwidth=4 expandtab:
+
